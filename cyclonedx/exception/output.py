@@ -20,7 +20,12 @@
 Exceptions that are for specific error scenarios during the output of a Model to a SBOM.
 """
 
+from typing import TYPE_CHECKING
+
 from . import CycloneDxException
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..output.compatibility import CompatibilityReport
 
 
 class BomGenerationErrorException(CycloneDxException):
@@ -37,3 +42,28 @@ class FormatNotSupportedException(CycloneDxException):
     For example, JSON is not supported prior to 1.2.
     """
     pass
+
+
+class DowngradeSecurityLossException(CycloneDxException):
+    """
+    Exception raised in strict mode when downgrading a BOM to an older schema version
+    would silently drop security-relevant content
+    (e.g. cryptographic assets, component evidence, hashes, vulnerabilities).
+
+    Carries the full :class:`cyclonedx.output.compatibility.CompatibilityReport`
+    in the ``report`` attribute, so callers can locate every lost object and field.
+    """
+
+    def __init__(self, report: 'CompatibilityReport') -> None:
+        self._report = report
+        losses = '\n'.join(f'  - {loss.path}' for loss in report.security_losses)
+        super().__init__(
+            f'Downgrading from CycloneDX {report.source_version.to_version()}'
+            f' to {report.target_version.to_version()}'
+            f' loses security-relevant content:\n{losses}'
+        )
+
+    @property
+    def report(self) -> 'CompatibilityReport':
+        """The report describing all content lost by the downgrade."""
+        return self._report
