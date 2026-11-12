@@ -1,4 +1,16 @@
 {
+  "components": [
+    {
+      "bom-ref": "urn:cdx:bom23/1#comp42",
+      "name": "affected-component",
+      "type": "library"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "urn:cdx:bom23/1#comp42"
+    }
+  ],
   "metadata": {
     "timestamp": "2023-01-07T13:44:32.312678+00:00"
   },

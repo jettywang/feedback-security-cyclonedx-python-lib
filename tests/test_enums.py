@@ -380,13 +380,18 @@ class TestEnumImpactAnalysisAffectedStatus(_EnumTestCase):
 
     @named_data(*NAMED_OF_SV)
     def test_cases_render_valid(self, of: OutputFormat, sv: SchemaVersion, *_: Any, **__: Any) -> None:
-        bom = _make_bom(vulnerabilities=[Vulnerability(
-            bom_ref='dummy', id='dummy', affects=[BomTarget(ref='urn:cdx:bom23/1#comp42', versions=(
-                BomTargetVersionRange(version=f'1.33.7+{iaas.name}', status=iaas)
-                for iaas in ImpactAnalysisAffectedStatus
-            ))]
-        )])
+        bom = _make_bom(
+            components=[Component(
+                name='affected-component', type=ComponentType.LIBRARY,
+                bom_ref='urn:cdx:bom23/1#comp42')],
+            vulnerabilities=[Vulnerability(
+                bom_ref='dummy', id='dummy', affects=[BomTarget(ref='urn:cdx:bom23/1#comp42', versions=(
+                    BomTargetVersionRange(version=f'1.33.7+{iaas.name}', status=iaas)
+                    for iaas in ImpactAnalysisAffectedStatus
+                ))]
+            )])
         super()._test_cases_render(bom, of, sv)
+
 
 
 @ddt

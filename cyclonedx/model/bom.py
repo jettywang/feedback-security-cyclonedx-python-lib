@@ -29,7 +29,12 @@ from sortedcontainers import SortedSet
 
 from .._internal.compare import ComparableTuple as _ComparableTuple
 from .._internal.time import get_now_utc as _get_now_utc
-from ..exception.model import LicenseExpressionAlongWithOthersException, UnknownComponentDependencyException
+from ..exception.model import (
+    DuplicateBomRefException,
+    LicenseExpressionAlongWithOthersException,
+    UnknownBomRefException,
+    UnknownComponentDependencyException,
+)
 from ..schema.deprecation import SchemaDeprecationWarning1Dot6
 from ..schema.schema import (
     SchemaVersion1Dot0,
@@ -837,6 +842,31 @@ class Bom:
             raise UnknownComponentDependencyException(
                 'One or more Components have Dependency references to Components/Services that are not known in this '
                 f'BOM. They are: {dependency_diff}')
+
+        # 1b. Make sure vulnerability.affects targets resolve to a Component/Service bom-ref of this Bom.
+        known_bom_ref_values = set(map(str, component_bom_refs))
+        unknown_affect_refs = set(chain.from_iterable(
+            (target.ref for target in vulnerability.affects)
+            for vulnerability in self.vulnerabilities
+        )) - known_bom_ref_values
+        if len(unknown_affect_refs) > 0:
+            raise UnknownBomRefException(
+                'One or more vulnerability.affects targets reference bom-refs that are not declared by any '
+                f'Component or Service in this BOM. They are: {unknown_affect_refs!r}')
+
+        # 1c. Make sure no two distinct objects share an explicit bom-ref. Anonymous (None) bom-refs
+        #      are fine - the output layer generates unique values for them.
+        explicit_bom_ref_owner: dict[str, BomRef] = {}
+        for bomref in component_bom_refs:
+            value = bomref.value
+            if value is None:
+                continue
+            owner = explicit_bom_ref_owner.get(value)
+            if owner is not None and owner is not bomref:
+                raise DuplicateBomRefException(
+                    f'Duplicate bom-ref {value!r} is used by multiple distinct objects; '
+                    'assign unique bom-ref values before exporting the Bom.')
+            explicit_bom_ref_owner[value] = bomref
 
         # 2. if root component is set and there are other components: dependencies should exist for the Component
         # this BOM is describing

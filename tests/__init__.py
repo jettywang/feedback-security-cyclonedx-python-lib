@@ -156,9 +156,13 @@ def uuid_generator(offset: int = 0, version: int = 4) -> Generator[UUID, None, N
 class BomRefDiscriminator(_BomRefDiscriminator):
     __uiter = 0
 
-    def _make_unique(self) -> str:
+    def _make_unique(self, known_values: Iterable[str] = ()) -> str:
+        candidate = f'TESTING_{self._prefix}{self.__uiter + 1}'
+        while candidate in known_values:
+            self.__uiter += 1
+            candidate = f'TESTING_{self._prefix}{self.__uiter + 1}'
         self.__uiter += 1
-        return f'TESTING_{self._prefix}{self.__uiter}'
+        return candidate
 
 
 _SNAME_EXT = {

@@ -22,6 +22,7 @@ from unittest.mock import Mock
 
 from ddt import data, ddt, named_data, unpack
 
+from cyclonedx.exception.model import DuplicateBomRefException
 from cyclonedx.model.bom import Bom
 from cyclonedx.model.bom_ref import BomRef
 from cyclonedx.output import BomRefDiscriminator, make_outputter
@@ -54,29 +55,29 @@ class TestTestGetInstance(TestCase):
 class TestBomRefDiscriminator(TestCase):
     """
     System under test `BomRefDiscriminator` is a deprecated re-export.
-    We keep the old tests untouched, to assert old behavior.
+    These tests assert the tightened conflict semantics through the old import path.
     """
 
-    def test_discriminate_and_reset_with(self) -> None:
+    def test_duplicate_explicit_value_is_rejected_with(self) -> None:
         bomref1 = BomRef('djdlkfjdslkf')
         bomref2 = BomRef('djdlkfjdslkf')
         self.assertEqual(bomref1.value, bomref2.value, 'blank')
         discr = BomRefDiscriminator([bomref1, bomref2])
         self.assertEqual(bomref1.value, bomref2.value, 'init')
-        discr.discriminate()
-        self.assertNotEqual(bomref1.value, bomref2.value, 'should be discriminated')
-        discr.reset()
+        with self.assertRaises(DuplicateBomRefException):
+            with discr:
+                pass
         self.assertEqual('djdlkfjdslkf', bomref1.value)
         self.assertEqual('djdlkfjdslkf', bomref2.value)
 
-    def test_discriminate_and_reset_manually(self) -> None:
+    def test_anonymous_value_is_generated_manually(self) -> None:
         bomref1 = BomRef('djdlkfjdslkf')
-        bomref2 = BomRef('djdlkfjdslkf')
-        self.assertEqual(bomref1.value, bomref2.value, 'blank')
+        bomref2 = BomRef()
         discr = BomRefDiscriminator([bomref1, bomref2])
-        self.assertEqual(bomref1.value, bomref2.value, 'init')
-        with discr:
-            self.assertNotEqual(bomref1.value, bomref2.value, 'should be discriminated')
+        discr.discriminate()
+        self.assertEqual('djdlkfjdslkf', bomref1.value)
+        self.assertIsNotNone(bomref2.value)
+        self.assertNotEqual(bomref1.value, bomref2.value)
         discr.reset()
         self.assertEqual('djdlkfjdslkf', bomref1.value)
-        self.assertEqual('djdlkfjdslkf', bomref2.value)
+        self.assertIsNone(bomref2.value)

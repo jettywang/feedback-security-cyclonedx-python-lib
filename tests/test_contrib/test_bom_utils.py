@@ -19,6 +19,7 @@
 from unittest import TestCase
 
 from cyclonedx.contrib.bom.utils import BomDependencyGraphFlatMerger, BomRefDiscriminator
+from cyclonedx.exception.model import DuplicateBomRefException
 from cyclonedx.model.bom import Bom
 from cyclonedx.model.bom_ref import BomRef
 from cyclonedx.model.dependency import Dependency
@@ -26,28 +27,69 @@ from cyclonedx.model.dependency import Dependency
 
 class TestBomRefDiscriminator(TestCase):
 
-    def test_discriminate_and_reset_manually(self) -> None:
+    def test_anonymous_refs_get_generated_values(self) -> None:
+        bomref1 = BomRef()
+        bomref2 = BomRef()
+        self.assertIsNone(bomref1.value)
+        self.assertIsNone(bomref2.value)
+        with BomRefDiscriminator([bomref1, bomref2]):
+            self.assertIsNotNone(bomref1.value)
+            self.assertIsNotNone(bomref2.value)
+            self.assertNotEqual(bomref1.value, bomref2.value, 'generated values must be unique')
+        self.assertIsNone(bomref1.value)
+        self.assertIsNone(bomref2.value)
+
+    def test_explicit_values_are_kept(self) -> None:
+        bomref1 = BomRef('one')
+        bomref2 = BomRef('two')
+        with BomRefDiscriminator([bomref1, bomref2]):
+            self.assertEqual('one', bomref1.value)
+            self.assertEqual('two', bomref2.value)
+        self.assertEqual('one', bomref1.value)
+        self.assertEqual('two', bomref2.value)
+
+    def test_duplicate_explicit_value_is_rejected_and_not_mutated(self) -> None:
         bomref1 = BomRef('djdlkfjdslkf')
         bomref2 = BomRef('djdlkfjdslkf')
-        self.assertEqual(bomref1.value, bomref2.value, 'blank')
         discr = BomRefDiscriminator([bomref1, bomref2])
-        self.assertEqual(bomref1.value, bomref2.value, 'init')
-        discr.discriminate()
-        self.assertNotEqual(bomref1.value, bomref2.value, 'should be discriminated')
+        with self.assertRaises(DuplicateBomRefException):
+            discr.discriminate()
+        # failure must not leave a half-rewritten state behind
+        self.assertEqual('djdlkfjdslkf', bomref1.value)
+        self.assertEqual('djdlkfjdslkf', bomref2.value)
         discr.reset()
         self.assertEqual('djdlkfjdslkf', bomref1.value)
         self.assertEqual('djdlkfjdslkf', bomref2.value)
 
-    def test_discriminate_and_reset_with(self) -> None:
+    def test_duplicate_explicit_value_is_rejected_as_context_manager(self) -> None:
         bomref1 = BomRef('djdlkfjdslkf')
         bomref2 = BomRef('djdlkfjdslkf')
-        self.assertEqual(bomref1.value, bomref2.value, 'blank')
-        discr = BomRefDiscriminator([bomref1, bomref2])
-        self.assertEqual(bomref1.value, bomref2.value, 'init')
-        with discr:
-            self.assertNotEqual(bomref1.value, bomref2.value, 'should be discriminated')
+        bomref3 = BomRef()
+        with self.assertRaises(DuplicateBomRefException):
+            with BomRefDiscriminator([bomref1, bomref2, bomref3]):
+                pass
+        # even the anonymous BomRef that would have been generated stays untouched
         self.assertEqual('djdlkfjdslkf', bomref1.value)
         self.assertEqual('djdlkfjdslkf', bomref2.value)
+        self.assertIsNone(bomref3.value)
+
+    def test_same_instance_repeated_is_not_a_conflict(self) -> None:
+        bomref = BomRef('shared-instance')
+        with BomRefDiscriminator([bomref, bomref]):
+            self.assertEqual('shared-instance', bomref.value)
+        self.assertEqual('shared-instance', bomref.value)
+
+    def test_fix_and_retry_after_conflict(self) -> None:
+        bomref1 = BomRef('collide')
+        bomref2 = BomRef('collide')
+        discr = BomRefDiscriminator([bomref1, bomref2])
+        with self.assertRaises(DuplicateBomRefException):
+            discr.discriminate()
+        # model is still editable: disambiguate, then a fresh discriminator succeeds
+        bomref2.value = 'disambiguated'
+        with BomRefDiscriminator([bomref1, bomref2]):
+            self.assertEqual('collide', bomref1.value)
+            self.assertEqual('disambiguated', bomref2.value)
 
 
 class TestBomDependencyGraphFlatMerger(TestCase):

@@ -112,6 +112,30 @@ class UnknownComponentDependencyException(CycloneDxModelException):
     pass
 
 
+class DuplicateBomRefException(CycloneDxModelException):
+    """
+    Raised when two or more distinct objects (Components, Services or Vulnerabilities)
+    declare the same non-empty ``bom-ref`` value.
+
+    A ``bom-ref`` must identify exactly one object within a BOM. Silently rewriting such a
+    duplicate would break every reference (dependency graph, ``vulnerability.affects`` ...)
+    that points at the colliding value, so the conflicting model must be fixed by the caller
+    instead of being auto-rewritten.
+
+    Note that an empty (``None``) ``bom-ref`` is not a conflict: the output layer is allowed
+    to generate a unique value for anonymous objects.
+    """
+    pass
+
+
+class UnknownBomRefException(CycloneDxModelException):
+    """
+    Raised when a reference (for example a ``vulnerability.affects`` target) points at a
+    ``bom-ref`` value that is not declared by any Component or Service in this Bom.
+    """
+    pass
+
+
 class UnknownHashTypeException(CycloneDxModelException):
     """
     Exception raised when we are unable to determine the type of hash from a composite hash string.

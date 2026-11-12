@@ -27,6 +27,7 @@ from itertools import chain
 from random import random
 from typing import TYPE_CHECKING, Any
 
+from ...exception.model import DuplicateBomRefException
 from ...model.dependency import Dependency
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -39,11 +40,21 @@ class BomRefDiscriminator:
     Ensure that a collection of BomRef objects
     has unique, non‑empty :attr:`cyclonedx.model.bom_ref.BomRef.value`.
 
-    The discriminator inspects each provided BomRef and assigns a newly
-    generated identifier to any instance whose ``value`` is missing or
-    duplicates an earlier one.
+    A new value is **generated** for (and only for) BomRefs whose ``value`` is ``None``,
+    i.e. anonymous objects that never got an explicit identifier assigned.
+
+    A conflict is **rejected** with :class:`DuplicateBomRefException` when two *distinct*
+    BomRef objects carry the same non‑empty explicit ``value``. Such a collision means two
+    different objects would be indistinguishable in the serialized BOM, so any reference
+    (dependency graph entries, ``vulnerability.affects`` targets ...) pointing at that
+    value could no longer be resolved to a single object. The caller must disambiguate the
+    model itself; silently rewriting an explicit value would corrupt those references.
+    Repeated occurrences of the very same BomRef instance are not a conflict.
+
     All original values are preserved and can be restored via :meth:`reset()`
-    or by using this class as a context manager.
+    or by using this class as a context manager. Validation happens before any BomRef is
+    mutated, so a raised conflict leaves every BomRef (and therefore the whole model)
+    untouched and still editable.
     """
 
     def __init__(self, bomrefs: Iterable['BomRef'], prefix: str = 'BomRef') -> None:
@@ -63,16 +74,32 @@ class BomRefDiscriminator:
         Enforce uniqueness across all
         :attr:`cyclonedx.model.bom_ref.BomRef.value`s.
 
-        Any BomRef whose ``value`` is ``None`` or duplicates a previously
-        encountered value is assigned a newly generated unique identifier.
+        A newly generated unique identifier is assigned to BomRefs whose ``value`` is
+        ``None``. Distinct BomRefs sharing an explicit, non‑empty ``value`` cause a
+        :class:`DuplicateBomRefException`; no BomRef is modified in that case, so the
+        model remains in its original, editable state.
         """
-        known_values = []
+        # Pass 1: detect explicit conflicts before mutating anything, so a failure never
+        # leaves the model in a half-rewritten state.
+        explicit_owner: dict[str, 'BomRef'] = {}
         for bomref, _ in self._bomrefs:
             value = bomref.value
-            if value is None or value in known_values:
-                value = self._make_unique()
+            if value is None:
+                continue
+            owner = explicit_owner.get(value)
+            if owner is not None and owner is not bomref:
+                raise DuplicateBomRefException(
+                    f'Duplicate bom-ref {value!r} is used by multiple distinct objects; '
+                    'assign unique bom-ref values before exporting the Bom.')
+            explicit_owner[value] = bomref
+
+        # Pass 2: only anonymous BomRefs receive generated identifiers.
+        known_values = set(explicit_owner)
+        for bomref, _ in self._bomrefs:
+            if bomref.value is None:
+                value = self._make_unique(known_values)
                 bomref.value = value
-            known_values.append(value)
+                known_values.add(value)
 
     def reset(self) -> None:
         """
@@ -82,8 +109,11 @@ class BomRefDiscriminator:
         for bomref, original_value in self._bomrefs:
             bomref.value = original_value
 
-    def _make_unique(self) -> str:
-        return f'{self._prefix}{str(random())[1:]}{str(random())[1:]}'  # nosec B311
+    def _make_unique(self, known_values: Iterable[str] = ()) -> str:
+        candidate = f'{self._prefix}{str(random())[1:]}{str(random())[1:]}'  # nosec B311
+        while candidate in known_values:
+            candidate = f'{self._prefix}{str(random())[1:]}{str(random())[1:]}'  # nosec B311
+        return candidate
 
     @classmethod
     def from_bom(cls, bom: 'Bom', prefix: str = 'BomRef') -> 'BomRefDiscriminator':

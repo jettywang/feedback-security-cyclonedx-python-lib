@@ -27,6 +27,7 @@ from ddt import data, ddt, idata, named_data, unpack
 
 from cyclonedx.exception import CycloneDxException, MissingOptionalDependencyException
 from cyclonedx.exception.model import (
+    DuplicateBomRefException,
     InvalidOmniBorIdException,
     InvalidSwhidException,
     LicenseExpressionAlongWithOthersException,
@@ -98,8 +99,26 @@ class TestOutputJson(TestCase, SnapshotMixin):
             return None  # expected
         raise error.exception
 
-    def test_bomref_not_duplicate(self) -> None:
+    def test_bomref_duplicate_is_rejected_and_model_stays_editable(self) -> None:
         bom, nr_bomrefs = bom_all_same_bomref()
+        with self.assertRaises(DuplicateBomRefException):
+            BY_SCHEMA_VERSION[SchemaVersion.V1_4](bom).output_as_string()
+        # the failed export must not have rewritten any bom-ref of the model
+        explicit_refs = [
+            c.bom_ref.value for c in bom._get_all_components()
+        ] + [s.bom_ref.value for s in bom.services] + [v.bom_ref.value for v in bom.vulnerabilities]
+        self.assertEqual(nr_bomrefs, len(explicit_refs))
+        self.assertEqual({'foo'}, set(explicit_refs))
+
+        # after the caller disambiguates the refs, the same model exports successfully
+        distinct = ('bar', 'baz', 'qux', 'quux', 'quuux', 'quuuux')
+        for bom_ref, value in zip(
+            [*(c.bom_ref for c in bom._get_all_components()),
+             *(s.bom_ref for s in bom.services),
+             *(v.bom_ref for v in bom.vulnerabilities)],
+            distinct,
+        ):
+            bom_ref.value = value
         output = BY_SCHEMA_VERSION[SchemaVersion.V1_4](bom).output_as_string()
         found = re.findall(r'"bom-ref":\s*"(.*?)"', output)
         self.assertEqual(nr_bomrefs, len(found))
